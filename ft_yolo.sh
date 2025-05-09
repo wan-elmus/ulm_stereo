@@ -54,36 +54,61 @@
 # )
 # EOF
 
-# Train Model 2 (Improved with SE)
-python - <<EOF
-try:
-    from ultralytics.nn.modules import SE
-except ImportError:
-    from scripts.se import SE
-from ultralytics import YOLO
+# # Train Model 2 (Improved with SE)
+# python - <<EOF
+# try:
+#     from ultralytics.nn.modules import SE
+# except ImportError:
+#     from scripts.se import SE
+# from ultralytics import YOLO
 
-model = YOLO("configs/yolov8-se.yaml")
-model.train(
-    data="configs/yolo-bvn.yaml",
-    epochs=100,
-    imgsz=640,
-    batch=16,
-    lr0=0.001,
-    patience=30,
-    augment=True,
-    hsv_h=0.015,
-    hsv_s=0.7,
-    hsv_v=0.4,
-    degrees=10.0,
-    translate=0.1,
-    scale=0.5,
-    shear=2.0,
-    mosaic=1.0,
-    project="runs/detect",
-    name="train_se",
-    device="cpu",
-    save=True,
-    plots=True,
-    loss_cls_weight=[1.0, 1.0, 2.0]
-)
-EOF
+# model = YOLO("configs/yolov8-se.yaml")
+# model.train(
+#     data="configs/yolo-bvn.yaml",
+#     epochs=100,
+#     imgsz=640,
+#     batch=16,
+#     lr0=0.001,
+#     patience=30,
+#     augment=True,
+#     hsv_h=0.015,
+#     hsv_s=0.7,
+#     hsv_v=0.4,
+#     degrees=10.0,
+#     translate=0.1,
+#     scale=0.5,
+#     shear=2.0,
+#     mosaic=1.0,
+#     project="runs/detect",
+#     name="train_se",
+#     device="cpu",
+#     save=True,
+#     plots=True,
+#     loss_cls_weight=[1.0, 1.0, 2.0]
+# )
+# EOF
+
+# Train Model 2 (Enhanced neck, no custom modules)
+yolo train \
+    model=configs/yolov8-custom.yaml \
+    data=configs/yolo-bvn.yaml \
+    epochs=100 \
+    imgsz=640 \
+    batch=16 \
+    lr0=0.001 \
+    patience=30 \
+    augment=True \
+    hsv_h=0.015 \
+    hsv_s=0.7 \
+    hsv_v=0.4 \
+    degrees=10.0 \
+    translate=0.1 \
+    scale=0.5 \
+    shear=2.0 \
+    mosaic=1.0 \
+    loss_cls_weight="[1.0, 1.0, 2.0]" \
+    project=runs/detect \
+    name=train_custom \
+    device=cpu \
+    save=True \
+    plots=True
