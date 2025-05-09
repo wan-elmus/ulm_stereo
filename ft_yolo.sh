@@ -92,10 +92,10 @@
 yolo train \
     model=configs/yolov8-custom.yaml \
     data=configs/yolo-bvn.yaml \
-    epochs=100 \
+    epochs=200 \
     imgsz=640 \
     batch=16 \
-    lr0=0.001 \
+    lr0=0.01 \
     patience=30 \
     augment=True \
     hsv_h=0.015 \
@@ -106,7 +106,6 @@ yolo train \
     scale=0.5 \
     shear=2.0 \
     mosaic=1.0 \
-    loss_cls_weight="[1.0, 1.0, 2.0]" \
     project=runs/detect \
     name=train_custom \
     device=cpu \
