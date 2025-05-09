@@ -96,7 +96,7 @@ yolo train \
     imgsz=640 \
     batch=16 \
     lr0=0.01 \
-    patience=30 \
+    patience=50 \
     augment=True \
     hsv_h=0.015 \
     hsv_s=0.7 \
