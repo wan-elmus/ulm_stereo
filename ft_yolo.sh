@@ -25,25 +25,31 @@
 #     plots=True
 
 # Train Model 2 (Improved with CBAM)
-yolo train \
-    model=configs/yolov8-cbam.yaml \
-    data=configs/yolo-bvn.yaml \
-    epochs=100 \
-    imgsz=640 \
-    batch=16 \
-    lr0=0.001 \
-    patience=30 \
-    augment=True \
-    hsv_h=0.015 \
-    hsv_s=0.7 \
-    hsv_v=0.4 \
-    degrees=10.0 \
-    translate=0.1 \
-    scale=0.5 \
-    shear=2.0 \
-    mosaic=1.0 \
-    project=runs/detect \
-    name=train_cbam \
-    device=cpu \
-    save=True \
+python - <<EOF
+from scripts.cbam import CBAM
+from ultralytics import YOLO
+
+model = YOLO("configs/yolov8-cbam.yaml")
+model.train(
+    data="configs/yolo-bvn.yaml",
+    epochs=100,
+    imgsz=640,
+    batch=16,
+    lr0=0.001,
+    patience=30,
+    augment=True,
+    hsv_h=0.015,
+    hsv_s=0.7,
+    hsv_v=0.4,
+    degrees=10.0,
+    translate=0.1,
+    scale=0.5,
+    shear=2.0,
+    mosaic=1.0,
+    project="runs/detect",
+    name="train_cbam",
+    device="cpu",
+    save=True,
     plots=True
+)
+EOF
