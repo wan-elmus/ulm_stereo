@@ -92,7 +92,7 @@
 yolo train \
     model=configs/yolov8-custom.yaml \
     data=configs/yolo-bvn.yaml \
-    epochs=70 \
+    epochs=200 \
     imgsz=640 \
     batch=16 \
     lr0=0.01 \
