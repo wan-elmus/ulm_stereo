@@ -89,7 +89,7 @@
 # EOF
 
 # Train YOLOv8n/s for superior performance on bvn dataset
-MODEL="yolov8n.pt" 
+MODEL="yolov8s.pt" 
 yolo train \
     model=$MODEL \
     pretrained=runs/detect/train_baseline3/weights/best.pt \
@@ -97,12 +97,11 @@ yolo train \
     epochs=100 \
     imgsz=640 \
     batch=8 \
-    lr0=0.0002 \
+    lr0=0.0001 \
     optimizer=SGD \
     momentum=0.937 \
-    patience=0 \
+    patience=60 \
     dropout=0.1 \
-    cls=0.5 \
     cos_lr=True \
     augment=True \
     hsv_h=0.015 \
@@ -112,10 +111,10 @@ yolo train \
     translate=0.1 \
     scale=0.5 \
     shear=2.0 \
-    mosaic=0.5 \
-    mixup=0.1 \
+    mosaic=1.0 \
+    mixup=0.2 \
     project=runs/detect \
-    name=train_superior2 \
+    name=train_superior \
     device=cpu \
     save=True \
     plots=True
