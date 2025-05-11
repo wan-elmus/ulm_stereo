@@ -17,20 +17,20 @@ backbone:
   - [-1, 1, SPPF, [1024, 5]]  # 9
 
 neck:
-  # Enhanced with extra C2f depth and SPPF
+  # Enhanced with reduced C2f depth and SPPF
   - [-1, 1, Upsample, [None, 2, 'nearest']]  # 10
   - [[-1, 6], 1, Concat, [1]]  # 11
-  - [-1, 4, C2f, [512, True]]  # 12 (increased depth)
+  - [-1, 2, C2f, [512, True]]  # 12 (reduced depth from 4 to 2)
   - [-1, 1, Upsample, [None, 2, 'nearest']]  # 13
   - [[-1, 4], 1, Concat, [1]]  # 14
-  - [-1, 4, C2f, [256, True]]  # 15 (increased depth)
+  - [-1, 2, C2f, [256, True]]  # 15 (reduced depth from 4 to 2)
   - [-1, 1, Conv, [256, 3, 2]]  # 16
   - [[-1, 12], 1, Concat, [1]]  # 17
-  - [-1, 4, C2f, [512, True]]  # 18 (increased depth)
+  - [-1, 2, C2f, [512, True]]  # 18 (reduced depth from 4 to 2)
   - [-1, 1, SPPF, [512, 5]]  # 19 (added SPPF)
   - [-1, 1, Conv, [512, 3, 2]]  # 20
   - [[-1, 9], 1, Concat, [1]]  # 21
-  - [-1, 4, C2f, [1024, True]]  # 22 (increased depth)
+  - [-1, 2, C2f, [1024, True]]  # 22 (reduced depth from 4 to 2)
 
 head:
   - [[-1], 1, Detect, [nc]]  # Detect(nc=3)
