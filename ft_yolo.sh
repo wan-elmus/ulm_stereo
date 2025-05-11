@@ -88,7 +88,7 @@
 # )
 # EOF
 
-# Train Model 2 (Enhanced neck, no custom modules)
+# Train Model 2 (Enhanced neck, pretrained on baseline)
 yolo train \
     model=configs/yolov8-custom.yaml \
     pretrained=runs/detect/train_baseline3/weights/best.pt \
@@ -97,8 +97,11 @@ yolo train \
     imgsz=640 \
     batch=8 \
     lr0=0.0005 \
-    patience=40 \
+    optimizer=SGD \
+    momentum=0.937 \
+    patience=50 \
     dropout=0.1 \
+    freeze=10 \
     augment=True \
     hsv_h=0.015 \
     hsv_s=0.7 \
