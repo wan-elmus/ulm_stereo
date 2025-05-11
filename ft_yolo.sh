@@ -91,12 +91,14 @@
 # Train Model 2 (Enhanced neck, no custom modules)
 yolo train \
     model=configs/yolov8-custom.yaml \
+    pretrained=runs/detect/train_baseline3/weights/best.pt \
     data=configs/yolo-bvn.yaml \
     epochs=100 \
     imgsz=640 \
     batch=8 \
-    lr0=0.001 \
-    patience=50 \
+    lr0=0.0005 \
+    patience=40 \
+    dropout=0.1 \
     augment=True \
     hsv_h=0.015 \
     hsv_s=0.7 \
