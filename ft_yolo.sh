@@ -88,9 +88,10 @@
 # )
 # EOF
 
-# Train Model 2 (Enhanced neck, pretrained on baseline)
+# Train YOLOv8n/s for superior performance on bvn dataset
+MODEL="yolov8n.pt" 
 yolo train \
-    model=configs/yolov8-custom.yaml \
+    model=$MODEL \
     pretrained=runs/detect/train_baseline3/weights/best.pt \
     data=configs/yolo-bvn.yaml \
     epochs=100 \
@@ -99,9 +100,9 @@ yolo train \
     lr0=0.0001 \
     optimizer=SGD \
     momentum=0.937 \
-    patience=50 \
+    patience=60 \
     dropout=0.1 \
-    freeze=5 \
+    cos_lr=True \
     augment=True \
     hsv_h=0.015 \
     hsv_s=0.7 \
@@ -113,7 +114,7 @@ yolo train \
     mosaic=1.0 \
     mixup=0.2 \
     project=runs/detect \
-    name=train_custom4 \
+    name=train_superior \
     device=cpu \
     save=True \
     plots=True
