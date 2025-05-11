@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import cv2
 import numpy as np
 import os
@@ -8,7 +7,6 @@ import logging
 import argparse
 from ultralytics import YOLO
 from collections import deque
-from ultralytics.nn.modules import block
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -18,10 +16,6 @@ os.environ["PYTORCH_NO_NNPACK"] = "1"
 warnings.filterwarnings("ignore", category=UserWarning, module="torch")
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-# Register CBAM dynamically
-from scripts.cbam import CBAM
-setattr(block, 'CBAM', CBAM)
 
 from scripts.stereo_processing import StereoProcessor
 from scripts.stereoconfig import stereoCamera
@@ -187,9 +181,13 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
     right_img_enhanced = enhance_color_regions(right_img_enhanced)
 
     try:
-        conf = 0.25 if 'intersection' in model.names else 0.3
-        results = model.predict(left_img_enhanced, conf=conf, classes=[0, 1, 2], iou=0.6)
+        # Default prediction
+        results = model.predict(left_img_enhanced, conf=0.25, iou=0.7, classes=[0, 1, 2])
         result = results[0]
+        # Lower conf for intersection (class 2)
+        if any(int(cls) == 2 for cls in result.boxes.cls):
+            results = model.predict(left_img_enhanced, conf=0.05, iou=0.6, classes=[0, 1, 2])
+            result = results[0]
     except Exception as e:
         logger.error(f"YOLOv8 prediction error: {str(e)}")
         return left_img, [], object_id
@@ -261,7 +259,7 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
                 'center_y': center_y,
                 'obj_id': obj_key
             })
-            logger.info(f"Object: {class_name} (ID: {obj_key}), Confidence: {conf:.2f}, Depth: {smoothed_depth:.2f} mm, Center: ({center_x:.2f}, {center_y:.2f})")
+            logger.info(f"Object: {class_name} (ID: {obj_key}), Confidence: {conf:.2f}, Depth: {smoothed_depth:.2f} mm, Center: ({center_x:.2f}, {center_y:.2f}), Bbox: {bbox}")
         else:
             logger.warning(f"No valid depth for {class_name} at bbox {bbox}")
             object_id += 1
@@ -319,7 +317,7 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
 def main():
     parser = argparse.ArgumentParser(description="Process stereo video or image for object detection and depth estimation.")
     parser.add_argument('--input', type=str, required=True, help='Path to input video or image')
-    parser.add_argument('--model', type=str, default='baseline', choices=['baseline', 'cbam'], help='Model to use: baseline or cbam')
+    parser.add_argument('--model', type=str, default='superior4', choices=['baseline', 'superior4', 'superior5'], help='Model to use: baseline, superior4, or superior5')
     args = parser.parse_args()
 
     input_path = args.input
