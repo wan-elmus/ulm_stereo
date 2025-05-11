@@ -317,7 +317,7 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
 def main():
     parser = argparse.ArgumentParser(description="Process stereo video or image for object detection and depth estimation.")
     parser.add_argument('--input', type=str, required=True, help='Path to input video or image')
-    parser.add_argument('--model', type=str, default='superior4', choices=['baseline', 'superior4', 'custom4'], help='Model to use: baseline3, superior4, or custom4')
+    parser.add_argument('--model', type=str, default='superior4', choices=['baseline3', 'superior4', 'custom4'], help='Model to use: baseline3, superior4, or custom4')
     args = parser.parse_args()
 
     input_path = args.input
