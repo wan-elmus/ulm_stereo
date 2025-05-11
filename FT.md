@@ -11,8 +11,8 @@ Test with images
 
     ```shell
     
-        python scripts/yolov8-stereo.py --input data/30.jpg --model baseline
-        python scripts/yolov8-stereo.py --input data/30.jpg --model cbam
+        python3 scripts/yolov8-stereo.py --input data/30.jpg --model baseline3
+        python3 scripts/yolov8-stereo.py --input data/30.jpg --model superior4
 
     ```
     
@@ -20,8 +20,8 @@ Test with video
 
     ```shell
     
-        python scripts/yolov8-stereo.py --input data/dual_camera.avi --model baseline
-        python scripts/yolov8-stereo.py --input data/dual_camera.avi --model cbam
+        python3 scripts/yolov8-stereo.py --input data/dual_camera.avi --model baseline3
+        python3 scripts/yolov8-stereo.py --input data/dual_camera.avi --model superior4
 
     ```
     
