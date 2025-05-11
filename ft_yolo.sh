@@ -88,8 +88,8 @@
 # )
 # EOF
 
-# Train YOLOv8n/s for superior performance on bvn dataset
-MODEL="yolov8s.pt" 
+# Train YOLOv8s for superior performance on bvn dataset
+MODEL="yolov8s.pt"  # Change to yolov8n.pt if overfitting occurs
 yolo train \
     model=$MODEL \
     pretrained=runs/detect/train_baseline3/weights/best.pt \
@@ -97,24 +97,28 @@ yolo train \
     epochs=100 \
     imgsz=640 \
     batch=8 \
-    lr0=0.0001 \
+    lr0=0.0002 \
     optimizer=SGD \
     momentum=0.937 \
-    patience=60 \
+    patience=0 \
     dropout=0.1 \
+    cls=0.3 \
+    box=0.9 \
+    freeze=10 \
     cos_lr=True \
+    verbose=True \
     augment=True \
     hsv_h=0.015 \
     hsv_s=0.7 \
     hsv_v=0.4 \
     degrees=10.0 \
     translate=0.1 \
-    scale=0.5 \
+    scale=0.3 \
     shear=2.0 \
-    mosaic=1.0 \
-    mixup=0.2 \
+    mosaic=0.5 \
+    mixup=0.1 \
     project=runs/detect \
-    name=train_superior \
+    name=train_superior3 \
     device=cpu \
     save=True \
     plots=True
