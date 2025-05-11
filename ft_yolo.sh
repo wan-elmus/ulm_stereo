@@ -102,7 +102,6 @@ yolo train \
     patience=50 \
     dropout=0.1 \
     freeze=5 \
-    strict=False \
     augment=True \
     hsv_h=0.015 \
     hsv_s=0.7 \
