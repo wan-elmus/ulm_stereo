@@ -103,7 +103,6 @@ yolo train \
     patience=0 \
     dropout=0.1 \
     cls=0.5 \
-    fl_gamma=2.0 \
     cos_lr=True \
     augment=True \
     hsv_h=0.015 \
