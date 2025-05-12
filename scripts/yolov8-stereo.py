@@ -56,7 +56,7 @@ class KalmanFilter:
 def enhance_image(image):
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     l = clahe.apply(l)
     lab = cv2.merge((l, a, b))
     enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
@@ -110,9 +110,32 @@ def compute_iou(box1, box2):
     union_area = box1_area + box2_area - inter_area
     return inter_area / union_area if union_area > 0 else 0
 
+def merge_overlapping_bboxes(detections):
+    if not detections:
+        return detections
+    merged_detections = []
+    used = [False] * len(detections)
+    
+    for i, det in enumerate(detections):
+        if used[i] or det['depth'] is None:
+            continue
+        merged_det = det.copy()
+        used[i] = True
+        for j, other_det in enumerate(detections[i+1:], start=i+1):
+            if used[j] or other_det['depth'] is None:
+                continue
+            iou = compute_iou(det['bbox'], other_det['bbox'])
+            if iou > 0.7:
+                if other_det['confidence'] > merged_det['confidence']:
+                    merged_det = other_det.copy()
+                used[j] = True
+        merged_detections.append(merged_det)
+    
+    return merged_detections
+
 def resolve_overlaps(detections, height, width):
     adjusted_detections = []
-    occupied_rects = []  # Tracks label rectangles
+    occupied_rects = []
     bbox_rects = [(int(d['bbox'][0]), int(d['bbox'][1]), int(d['bbox'][2]), int(d['bbox'][3])) for d in detections if d['depth'] is not None]
 
     for det in detections:
@@ -123,15 +146,13 @@ def resolve_overlaps(detections, height, width):
         class_name = det['class_name']
         depth = det['depth']
         x1, y1, x2, y2 = map(int, bbox)
-        font_scale = 0.6
-        font_thickness = 2
+        font_scale = 0.5
+        font_thickness = 1
 
         label_text = f"{class_name}: {int(depth)} mm"
         text_size, baseline = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
 
-        # Try multiple positions: top, bottom, left, right, diagonals
         position_attempts = [
-            # (x_offset, y_offset, priority)
             (0, -15 - text_size[1], 1),  # Above
             (0, y2 - y1 + text_size[1] + 15, 2),  # Below
             (-text_size[0] - 10, (y2 - y1) // 2, 3),  # Left
@@ -140,6 +161,10 @@ def resolve_overlaps(detections, height, width):
             (x2 - x1 + 10, -15 - text_size[1], 6),  # Top-right
             (-text_size[0] - 10, y2 - y1 + text_size[1] + 15, 7),  # Bottom-left
             (x2 - x1 + 10, y2 - y1 + text_size[1] + 15, 8),  # Bottom-right
+            (0, -30 - text_size[1], 9),  # Further above
+            (0, y2 - y1 + text_size[1] + 30, 10),  # Further below
+            (-text_size[0] - 20, (y2 - y1) // 2, 11),  # Further left
+            (x2 - x1 + 20, (y2 - y1) // 2, 12),  # Further right
         ]
 
         best_position = None
@@ -148,17 +173,15 @@ def resolve_overlaps(detections, height, width):
         for x_offset, y_offset, priority in position_attempts:
             text_x = int(x1 + (x2 - x1 - text_size[0]) / 2 + x_offset)
             text_y = y1 + y_offset
-            label_rect = [text_x, text_y - text_size[1] - 5, text_x + text_size[0] + 5, text_y + baseline + 5]
+            label_rect = [text_x, text_y - text_size[1] - 3, text_x + text_size[0] + 3, text_y + baseline + 3]
 
-            # Check if label is within image bounds
             if not (0 <= label_rect[0] <= width and 0 <= label_rect[2] <= width and
                     0 <= label_rect[1] <= height and 0 <= label_rect[3] <= height):
                 continue
 
-            # Check for overlap with other labels and bounding boxes
             overlap = False
             for occ_rect in occupied_rects + bbox_rects:
-                if compute_iou(label_rect, occ_rect) > 0.05:  # Stricter IoU threshold
+                if compute_iou(label_rect, occ_rect) > 0.02:
                     overlap = True
                     break
 
@@ -190,22 +213,20 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
     right_img_enhanced = enhance_image(right_img)
     left_img_enhanced = enhance_color_regions(left_img_enhanced)
     right_img_enhanced = enhance_color_regions(right_img_enhanced)
+    cv2.imwrite("debug_enhanced_left.jpg", left_img_enhanced)
 
     try:
-        # Predict with lower confidence for better recall
-        results = model.predict(left_img_enhanced, conf=0.05, iou=0.6, classes=[0, 1, 2])
+        results = model.predict(left_img_enhanced, conf=0.01, iou=0.6, classes=[0, 1, 2])
         result = results[0]
-        # Log all detection confidences for debugging
         for box in result.boxes:
             cls_id = int(box.cls)
             class_name = {0: 'branch', 1: 'burl', 2: 'intersection'}.get(cls_id, 'unknown')
             conf = box.conf.cpu().numpy()[0]
-            logger.debug(f"Raw detection: {class_name}, Confidence: {conf:.4f}")
+            logger.info(f"Raw detection: {class_name}, Confidence: {conf:.4f}, Bbox: {box.xyxy[0].cpu().numpy()}")
     except Exception as e:
         logger.error(f"YOLOv8 prediction error: {str(e)}")
         return left_img, [], object_id
 
-    # Validate class IDs
     valid_classes = {0: 'branch', 1: 'burl', 2: 'intersection'}
     for box in result.boxes:
         cls_id = int(box.cls)
@@ -214,11 +235,15 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
             return left_img, [], object_id
 
     max_retries = 3
+    disparity = None
     for attempt in range(max_retries):
         try:
             left_gray, right_gray = stereo_processor.preprocess(left_img, right_img)
             left_rect, right_rect = stereo_processor.rectifyImage(left_gray, right_gray)
             disparity = stereo_processor.stereoMatchSGBM(left_rect, right_rect)
+            valid_pixels = np.sum(disparity > 0) / disparity.size
+            logger.debug(f"Disparity map quality: {valid_pixels:.2%} valid pixels")
+            cv2.imwrite("debug_disparity.jpg", disparity)
             break
         except Exception as e:
             logger.warning(f"Stereo processing attempt {attempt + 1} failed: {str(e)}")
@@ -237,10 +262,22 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
 
         center_x, center_y = refine_bbox_center(left_img, bbox)
         depth = stereo_processor.get_depth_for_bbox(points_3d, bbox)
+        
+        # Fallback depth estimation if depth is None
+        if depth is None:
+            x1, y1, x2, y2 = map(int, bbox)
+            roi_disparity = disparity[y1:y2, x1:x2]
+            valid_depths = points_3d[y1:y2, x1:x2, 2][roi_disparity > 0]
+            if valid_depths.size > 0:
+                depth = np.median(valid_depths)
+                logger.debug(f"Fallback depth for {class_name} at bbox {bbox}: {depth:.2f} mm")
+            else:
+                logger.warning(f"No valid depth points for {class_name} at bbox {bbox}")
+
         obj_key = f"{class_name}_{object_id}"
         smoothed_depth = depth
 
-        if depth is not None and 200 < depth < 4000:
+        if depth is not None and 100 < depth < 5000:
             if use_tracking:
                 if depth_history is None or detection_history is None or kalman_filters is None:
                     logger.error("Tracking parameters not provided for video processing")
@@ -274,8 +311,7 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
             })
             logger.info(f"Object: {class_name} (ID: {obj_key}), Confidence: {conf:.2f}, Depth: {smoothed_depth:.2f} mm, Center: ({center_x:.2f}, {center_y:.2f}), Bbox: {bbox}, Color: {'Blue' if class_name == 'branch' else 'Red' if class_name == 'burl' else 'Green'}")
         else:
-            logger.warning(f"No valid depth for {class_name} at bbox {bbox}")
-            object_id += 1
+            logger.warning(f"No valid depth for {class_name} at bbox {bbox}, depth={depth}")
 
     if use_tracking and detection_history is not None:
         detection_history.append(detections)
@@ -288,6 +324,7 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
                         if iou > 0.7:
                             det['confidence'] = max(det['confidence'], prev_det['confidence'] * 0.95)
 
+    detections = merge_overlapping_bboxes(detections)
     detections = sorted(detections, key=lambda x: x['confidence'], reverse=True)
     detections = resolve_overlaps(detections, height, width)
 
@@ -302,40 +339,35 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
         color = (255, 0, 0) if class_name == 'branch' else (0, 0, 255) if class_name == 'burl' else (0, 255, 0)
         x1, y1, x2, y2 = map(int, bbox)
 
-        # Draw bounding box around the object
         cv2.rectangle(left_img, (x1, y1), (x2, y2), color, 1)
 
-        # Draw label with background
         label_text = f"{class_name}: {int(depth)} mm"
-        font_scale = 0.6
-        font_thickness = 2
+        font_scale = 0.5
+        font_thickness = 1
         text_size, baseline = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
-        cv2.rectangle(left_img, (text_x - 5, text_y - text_size[1] - 5),
-                      (text_x + text_size[0] + 5, text_y + baseline + 5), (0, 0, 0), -1)
+        cv2.rectangle(left_img, (text_x - 3, text_y - text_size[1] - 3),
+                      (text_x + text_size[0] + 3, text_y + baseline + 3), (0, 0, 0), -1)
         cv2.putText(left_img, label_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX,
                     font_scale, color, font_thickness)
 
-        # Draw line from label to object center
         line_x = text_x + text_size[0] // 2
         line_y_start = text_y + baseline - 2 if text_y < y1 else text_y - text_size[1]
         line_y_end = int(center_y)
         line_x_end = int(center_x)
         cv2.line(left_img, (line_x, line_y_start), (line_x_end, line_y_end), color, 1)
 
-    # Draw resolution text
     resolution_text = f"Resolution: {width}x{height}"
-    font_scale = 0.6
-    font_thickness = 2
+    font_scale = 0.5
+    font_thickness = 1
     text_size, baseline = cv2.getTextSize(resolution_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
-    cv2.rectangle(left_img, (10, 40 - text_size[1] - 5),
-                  (10 + text_size[0] + 10, 40 + baseline + 5), (0, 0, 0), -1)
+    cv2.rectangle(left_img, (10, 40 - text_size[1] - 3),
+                  (10 + text_size[0] + 6, 40 + baseline + 3), (0, 0, 0), -1)
     cv2.putText(left_img, resolution_text, (10, 40), cv2.FONT_HERSHEY_SIMPLEX,
                 font_scale, (255, 255, 255), font_thickness)
 
     return left_img, detections, object_id
 
 def cleanup(cap=None, out=None):
-    """Release OpenCV resources and close windows."""
     if cap and cap.isOpened():
         cap.release()
     if out:
@@ -344,18 +376,16 @@ def cleanup(cap=None, out=None):
     logger.info("Cleaned up OpenCV resources.")
 
 def signal_handler(sig, frame):
-    """Handle Ctrl+C gracefully."""
     logger.info("Received Ctrl+C, shutting down...")
     cleanup()
     sys.exit(0)
 
 def main():
-    # Set up signal handler for Ctrl+C
     signal.signal(signal.SIGINT, signal_handler)
 
     parser = argparse.ArgumentParser(description="Process stereo video or image for object detection and depth estimation.")
     parser.add_argument('--input', type=str, required=True, help='Path to input video or image')
-    parser.add_argument('--model', type=str, default='superior5', choices=['baseline4', 'superior5'], help='Model to use: baseline4, superior5')
+    parser.add_argument('--model', type=str, default='superior5', choices=['baseline42', 'superior5'], help='Model to use: baseline42, superior5')
     args = parser.parse_args()
 
     input_path = args.input
