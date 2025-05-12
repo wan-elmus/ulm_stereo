@@ -25,8 +25,21 @@
 # Documentation: https://docs.ultralytics.com/datasets/detect/
 # Example usage: yolo train data=yolo-bvn.yaml
 
+# # Train/val/test sets as 1) dir: path/to/imgs, 2) file: path/to/imgs.txt, or 3) list: [path/to/imgs1, path/to/imgs2, ..]
+# path: /home/sensei/Repos/ulm_stereo/datasets/bvn  # dataset root dir
+# train: images/train  # train images (relative to 'path')
+# val: images/val  # val images (relative to 'path')
+# test:  # test images (optional)
+
+# # Classes
+# names:
+#   0: branch
+#   1: burl
+#   2: intersection
+
+
 # Train/val/test sets as 1) dir: path/to/imgs, 2) file: path/to/imgs.txt, or 3) list: [path/to/imgs1, path/to/imgs2, ..]
-path: /home/sensei/Repos/ulm_stereo/datasets/bvn  # dataset root dir
+path: /root/sensei/ulm_stereo/datasets/bvn  # dataset root dir
 train: images/train  # train images (relative to 'path')
 val: images/val  # val images (relative to 'path')
 test:  # test images (optional)

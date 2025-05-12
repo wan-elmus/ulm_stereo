@@ -19,7 +19,7 @@ yolo train \
     shear=2.0 \
     mosaic=1.0 \
     project=runs/detect \
-    name=train_baseline \
+    name=train_baseline4 \
     device=cpu \
     save=True \
     plots=True
@@ -114,7 +114,7 @@ yolo train \
     mosaic=1.0 \
     mixup=0.2 \
     project=runs/detect \
-    name=train_superior \
+    name=train_superior4 \
     device=cpu \
     save=True \
     plots=True
