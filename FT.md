@@ -20,8 +20,8 @@ Test with video
 
     ```shell
     
-        python3 scripts/yolov8-stereo.py --input data/dual_camera.avi --model baseline3
-        python3 scripts/yolov8-stereo.py --input data/dual_camera.avi --model superior4
+        python3 scripts/yolov8-stereo.py --input data/ddual_camera_20250505_163126.avi --model baseline3
+        python3 scripts/yolov8-stereo.py --input data/dual_camera_20250505_163126.avi --model superior4
 
     ```
     

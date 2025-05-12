@@ -24,6 +24,7 @@ opencv-contrib-python
 pandas>=1.1.4
 seaborn>=0.11.0
 ultralytics
+ffmpeg
 
 # Export --------------------------------------
 # coremltools>=7.0  # CoreML export

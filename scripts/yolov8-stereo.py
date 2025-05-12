@@ -7,12 +7,14 @@ import logging
 import argparse
 from ultralytics import YOLO
 from collections import deque
+import signal
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 os.environ["NNPACK_ENABLED"] = "0"
 os.environ["PYTORCH_NO_NNPACK"] = "1"
+os.environ["QT_LOGGING_RULES"] = "qt5ct.debug=false"
 warnings.filterwarnings("ignore", category=UserWarning, module="torch")
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -63,7 +65,6 @@ def enhance_image(image):
     return sharpened
 
 def enhance_color_regions(image):
-    """Enhance red (burl) and blue (branch) regions for better detection."""
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     red_lower1 = np.array([0, 50, 50])
     red_upper1 = np.array([10, 255, 255])
@@ -111,7 +112,8 @@ def compute_iou(box1, box2):
 
 def resolve_overlaps(detections, height, width):
     adjusted_detections = []
-    occupied_rects = []
+    occupied_rects = []  # Tracks label rectangles
+    bbox_rects = [(int(d['bbox'][0]), int(d['bbox'][1]), int(d['bbox'][2]), int(d['bbox'][3])) for d in detections if d['depth'] is not None]
 
     for det in detections:
         if det['depth'] is None:
@@ -121,45 +123,54 @@ def resolve_overlaps(detections, height, width):
         class_name = det['class_name']
         depth = det['depth']
         x1, y1, x2, y2 = map(int, bbox)
-        font_scale = 0.8
-        font_thickness = 4
+        font_scale = 0.6
+        font_thickness = 2
 
         label_text = f"{class_name}: {int(depth)} mm"
         text_size, baseline = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
-        text_x = int(x1 + (x2 - x1 - text_size[0]) / 2)
-        text_y = y1 - 15
-        if text_y < text_size[1] + 15:
-            text_y = y2 + text_size[1] + 15
-        label_rect = [text_x, text_y - text_size[1] - 10, text_x + text_size[0] + 10, text_y + baseline + 10]
 
-        overlap = False
-        for occ_rect in occupied_rects:
-            if compute_iou(label_rect, occ_rect) > 0.1:
-                overlap = True
-                break
+        # Try multiple positions: top, bottom, left, right, diagonals
+        position_attempts = [
+            # (x_offset, y_offset, priority)
+            (0, -15 - text_size[1], 1),  # Above
+            (0, y2 - y1 + text_size[1] + 15, 2),  # Below
+            (-text_size[0] - 10, (y2 - y1) // 2, 3),  # Left
+            (x2 - x1 + 10, (y2 - y1) // 2, 4),  # Right
+            (-text_size[0] - 10, -15 - text_size[1], 5),  # Top-left
+            (x2 - x1 + 10, -15 - text_size[1], 6),  # Top-right
+            (-text_size[0] - 10, y2 - y1 + text_size[1] + 15, 7),  # Bottom-left
+            (x2 - x1 + 10, y2 - y1 + text_size[1] + 15, 8),  # Bottom-right
+        ]
 
-        if overlap:
-            attempts = [
-                (y1 - 30 - text_size[1], -30),
-                (y2 + text_size[1] + 30, 30),
-                (y1 - 50 - text_size[1], -50),
-                (y2 + text_size[1] + 50, 50),
-                (y1 - 70 - text_size[1], -70),
-                (y2 + text_size[1] + 70, 70),
-            ]
-            for new_y, offset in attempts:
-                new_label_rect = [text_x, new_y - text_size[1] - 10, text_x + text_size[0] + 10, new_y + baseline + 10]
-                new_overlap = any(compute_iou(new_label_rect, occ_rect) > 0.1 for occ_rect in occupied_rects)
-                if not new_overlap and 0 <= new_y - text_size[1] - 10 <= height and 0 <= new_y + baseline + 10 <= height:
-                    label_rect = new_label_rect
-                    text_y = new_y
-                    overlap = False
+        best_position = None
+        best_priority = float('inf')
+
+        for x_offset, y_offset, priority in position_attempts:
+            text_x = int(x1 + (x2 - x1 - text_size[0]) / 2 + x_offset)
+            text_y = y1 + y_offset
+            label_rect = [text_x, text_y - text_size[1] - 5, text_x + text_size[0] + 5, text_y + baseline + 5]
+
+            # Check if label is within image bounds
+            if not (0 <= label_rect[0] <= width and 0 <= label_rect[2] <= width and
+                    0 <= label_rect[1] <= height and 0 <= label_rect[3] <= height):
+                continue
+
+            # Check for overlap with other labels and bounding boxes
+            overlap = False
+            for occ_rect in occupied_rects + bbox_rects:
+                if compute_iou(label_rect, occ_rect) > 0.05:  # Stricter IoU threshold
+                    overlap = True
                     break
 
-        if overlap:
+            if not overlap and priority < best_priority:
+                best_position = (text_x, text_y, label_rect)
+                best_priority = priority
+
+        if best_position is None:
             logger.debug(f"Skipping drawing for {class_name} at bbox {bbox} due to unresolvable overlap")
             continue
 
+        text_x, text_y, label_rect = best_position
         det['text_x'] = text_x
         det['text_y'] = text_y
         det['label_rect'] = label_rect
@@ -181,13 +192,15 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
     right_img_enhanced = enhance_color_regions(right_img_enhanced)
 
     try:
-        # Default prediction
-        results = model.predict(left_img_enhanced, conf=0.25, iou=0.7, classes=[0, 1, 2])
+        # Predict with lower confidence for better recall
+        results = model.predict(left_img_enhanced, conf=0.05, iou=0.6, classes=[0, 1, 2])
         result = results[0]
-        # Lower conf for intersection (class 2)
-        if any(int(cls) == 2 for cls in result.boxes.cls):
-            results = model.predict(left_img_enhanced, conf=0.05, iou=0.6, classes=[0, 1, 2])
-            result = results[0]
+        # Log all detection confidences for debugging
+        for box in result.boxes:
+            cls_id = int(box.cls)
+            class_name = {0: 'branch', 1: 'burl', 2: 'intersection'}.get(cls_id, 'unknown')
+            conf = box.conf.cpu().numpy()[0]
+            logger.debug(f"Raw detection: {class_name}, Confidence: {conf:.4f}")
     except Exception as e:
         logger.error(f"YOLOv8 prediction error: {str(e)}")
         return left_img, [], object_id
@@ -259,7 +272,7 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
                 'center_y': center_y,
                 'obj_id': obj_key
             })
-            logger.info(f"Object: {class_name} (ID: {obj_key}), Confidence: {conf:.2f}, Depth: {smoothed_depth:.2f} mm, Center: ({center_x:.2f}, {center_y:.2f}), Bbox: {bbox}")
+            logger.info(f"Object: {class_name} (ID: {obj_key}), Confidence: {conf:.2f}, Depth: {smoothed_depth:.2f} mm, Center: ({center_x:.2f}, {center_y:.2f}), Bbox: {bbox}, Color: {'Blue' if class_name == 'branch' else 'Red' if class_name == 'burl' else 'Green'}")
         else:
             logger.warning(f"No valid depth for {class_name} at bbox {bbox}")
             object_id += 1
@@ -284,37 +297,62 @@ def process_frame(frame, stereo_processor, model, width, height, frame_width, fr
         depth = det['depth']
         text_x = det['text_x']
         text_y = det['text_y']
+        center_x = det['center_x']
+        center_y = det['center_y']
         color = (255, 0, 0) if class_name == 'branch' else (0, 0, 255) if class_name == 'burl' else (0, 255, 0)
         x1, y1, x2, y2 = map(int, bbox)
 
-        cv2.rectangle(left_img, (x1, y1), (x2, y2), color, 3)
+        # Draw bounding box around the object
+        cv2.rectangle(left_img, (x1, y1), (x2, y2), color, 1)
 
+        # Draw label with background
         label_text = f"{class_name}: {int(depth)} mm"
-        font_scale = 0.8
-        font_thickness = 4
+        font_scale = 0.6
+        font_thickness = 2
         text_size, baseline = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
-        cv2.rectangle(left_img, (text_x - 5, text_y - text_size[1] - 10),
-                      (text_x + text_size[0] + 5, text_y + baseline + 10), (0, 0, 0), -1)
+        cv2.rectangle(left_img, (text_x - 5, text_y - text_size[1] - 5),
+                      (text_x + text_size[0] + 5, text_y + baseline + 5), (0, 0, 0), -1)
         cv2.putText(left_img, label_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX,
                     font_scale, color, font_thickness)
 
-        line_y_start = text_y + baseline - 2
-        line_y_end = y1 if text_y < y1 else y2
+        # Draw line from label to object center
         line_x = text_x + text_size[0] // 2
-        cv2.line(left_img, (line_x, line_y_start), (line_x, line_y_end), color, 2)
+        line_y_start = text_y + baseline - 2 if text_y < y1 else text_y - text_size[1]
+        line_y_end = int(center_y)
+        line_x_end = int(center_x)
+        cv2.line(left_img, (line_x, line_y_start), (line_x_end, line_y_end), color, 1)
 
+    # Draw resolution text
     resolution_text = f"Resolution: {width}x{height}"
-    font_scale = 0.8
-    font_thickness = 4
+    font_scale = 0.6
+    font_thickness = 2
     text_size, baseline = cv2.getTextSize(resolution_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
-    cv2.rectangle(left_img, (10, 40 - text_size[1] - 10),
-                  (10 + text_size[0] + 10, 40 + baseline + 10), (0, 0, 0), -1)
+    cv2.rectangle(left_img, (10, 40 - text_size[1] - 5),
+                  (10 + text_size[0] + 10, 40 + baseline + 5), (0, 0, 0), -1)
     cv2.putText(left_img, resolution_text, (10, 40), cv2.FONT_HERSHEY_SIMPLEX,
                 font_scale, (255, 255, 255), font_thickness)
 
     return left_img, detections, object_id
 
+def cleanup(cap=None, out=None):
+    """Release OpenCV resources and close windows."""
+    if cap and cap.isOpened():
+        cap.release()
+    if out:
+        out.release()
+    cv2.destroyAllWindows()
+    logger.info("Cleaned up OpenCV resources.")
+
+def signal_handler(sig, frame):
+    """Handle Ctrl+C gracefully."""
+    logger.info("Received Ctrl+C, shutting down...")
+    cleanup()
+    sys.exit(0)
+
 def main():
+    # Set up signal handler for Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler)
+
     parser = argparse.ArgumentParser(description="Process stereo video or image for object detection and depth estimation.")
     parser.add_argument('--input', type=str, required=True, help='Path to input video or image')
     parser.add_argument('--model', type=str, default='superior4', choices=['baseline3', 'superior4', 'custom4'], help='Model to use: baseline3, superior4, or custom4')
@@ -326,16 +364,24 @@ def main():
 
     if not (is_video or is_image):
         logger.error("Input must be a video (.avi, .mp4, .mov) or image (.jpg, .jpeg, .png)")
+        cleanup()
+        return
+
+    if not os.path.exists(input_path):
+        logger.error(f"Input file {input_path} does not exist.")
+        cleanup()
         return
 
     model_path = os.path.join(os.path.dirname(__file__), f'../runs/detect/train_{args.model}/weights/best.pt')
     if not os.path.exists(model_path):
         logger.error(f"Model file {model_path} not found.")
+        cleanup()
         return
     try:
         model = YOLO(model_path)
     except Exception as e:
         logger.error(f"Failed to load YOLO model: {str(e)}")
+        cleanup()
         return
 
     config = stereoCamera()
@@ -344,15 +390,17 @@ def main():
         stereo_processor = StereoProcessor(config, width, height)
     except Exception as e:
         logger.error(f"Error initializing StereoProcessor: {str(e)}")
+        cleanup()
         return
 
-    cv2.namedWindow('YOLOv8 + Stereo', cv2.WINDOW_NORMAL)
+    cv2.namedWindow('YOLOv8 + Stereo', cv2.WND_PROP_AUTOSIZE)
     cv2.resizeWindow('YOLOv8 + Stereo', 1280, 720)
 
     if is_video:
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
-            logger.error(f"Could not open video {input_path}.")
+            logger.error(f"Could not open video {input_path}. Ensure the video format is supported by OpenCV (e.g., install FFmpeg with 'sudo apt-get install ffmpeg').")
+            cleanup()
             return
 
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -368,43 +416,45 @@ def main():
         object_id = 0
         frame_count = 0
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                logger.info("End of video or error reading frame.")
-                break
+        try:
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    logger.info("End of video or error reading frame.")
+                    break
 
-            left_img, detections, object_id = process_frame(
-                frame, stereo_processor, model, width, height, frame_width, frame_height,
-                use_tracking=True, depth_history=depth_history,
-                detection_history=detection_history, kalman_filters=kalman_filters,
-                object_id=object_id
-            )
+                left_img, detections, object_id = process_frame(
+                    frame, stereo_processor, model, width, height, frame_width, frame_height,
+                    use_tracking=True, depth_history=depth_history,
+                    detection_history=detection_history, kalman_filters=kalman_filters,
+                    object_id=object_id
+                )
 
-            valid_detections = [d for d in detections if d['depth'] is not None]
-            logger.info(f"Frame {frame_count}: Detected {len(valid_detections)} objects: {[d['class_name'] for d in valid_detections]}")
-            if valid_detections:
-                depths = [d['depth'] for d in valid_detections]
-                logger.info(f"Depth stats: Min={min(depths):.2f}mm, Max={max(depths):.2f}mm, Mean={np.mean(depths):.2f}mm")
+                valid_detections = [d for d in detections if d['depth'] is not None]
+                logger.info(f"Frame {frame_count}: Detected {len(valid_detections)} objects: {[d['class_name'] for d in valid_detections]}")
+                if valid_detections:
+                    depths = [d['depth'] for d in valid_detections]
+                    logger.info(f"Depth stats: Min={min(depths):.2f}mm, Max={max(depths):.2f}mm, Mean={np.mean(depths):.2f}mm")
 
-            out.write(left_img)
-            cv2.imshow('YOLOv8 + Stereo', left_img)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+                out.write(left_img)
+                cv2.imshow('YOLOv8 + Stereo', left_img)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    logger.info("User requested exit.")
+                    break
 
-            frame_count += 1
-            if frame_count % 10 == 0:
-                logger.info(f"Processed {frame_count} frames")
-
-        cap.release()
-        out.release()
-        cv2.destroyAllWindows()
-        logger.info("Video processing complete.")
+                frame_count += 1
+                if frame_count % 10 == 0:
+                    logger.info(f"Processed {frame_count} frames")
+        except KeyboardInterrupt:
+            logger.info("Video processing interrupted by user.")
+        finally:
+            cleanup(cap, out)
 
     else:
         frame = cv2.imread(input_path)
         if frame is None:
             logger.error(f"Could not read image {input_path}.")
+            cleanup()
             return
 
         frame_height, frame_width = frame.shape[:2]
@@ -426,10 +476,16 @@ def main():
         cv2.imwrite(output_path, left_img)
         logger.info(f"Saved processed image to {output_path}")
 
-        cv2.imshow('YOLOv8 + Stereo', left_img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        logger.info("Image processing complete.")
+        try:
+            cv2.imshow('YOLOv8 + Stereo', left_img)
+            while True:
+                key = cv2.waitKey(50) & 0xFF
+                if key == ord('q') or cv2.getWindowProperty('YOLOv8 + Stereo', cv2.WND_PROP_VISIBLE) < 1:
+                    break
+        except KeyboardInterrupt:
+            logger.info("Image display interrupted by user.")
+        finally:
+            cleanup()
 
 if __name__ == "__main__":
     main()
